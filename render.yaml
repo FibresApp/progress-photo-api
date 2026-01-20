@@ -1,13 +1,9 @@
 services:
   - type: web
-    name: my-node-app
-    env: node
-    plan: free
-    branch: main
+    name: progress-photo-api
+    runtime: node
     buildCommand: npm install
-    startCommand: npm start
+    startCommand: node index.js
     envVars:
-      - key: NODE_ENV
-        value: production
-      - key: PORT
-        value: 10000  # Render assigns a dynamic port automatically, override if needed
+      - key: OPEN_API_KEY
+        sync: false
