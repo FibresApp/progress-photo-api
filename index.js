@@ -1,40 +1,191 @@
-import express from "express";
-import multer from "multer";
-import OpenAI from "openai";
+const express = require('express');
+const cors = require('cors');
+const fetch = require('node-fetch'); // if using Node <18
 
 const app = express();
-const upload = multer();
-const port = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3000;
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
+app.use(cors());
+app.use(express.json({ limit: '50mb' }));
+
+// Health check
+app.get('/', (req, res) => {
+  res.json({ status: 'ok', message: 'Progress Photo Analyzer API' });
 });
 
-app.use(express.json({ limit: "10mb" }));
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok' });
+});
 
-app.post("/analyze-photo", upload.single("photo"), async (req, res) => {
+/* -----------------------------
+   Analyze single photo
+-------------------------------- */
+app.post('/api/analyze-photo', async (req, res) => {
   try {
-    const imageBase64 = req.body.photoBase64;
-    if (!imageBase64) return res.status(400).send({ error: "No photo provided" });
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+      return res.status(500).json({ error: 'OpenAI API key not configured' });
+    }
 
-    const response = await openai.responses.create({
-      model: "gpt-4.1-mini",
-      input: [
-        {
-          role: "user",
-          content: [
-            { type: "input_text", text: "Describe this photo and tell me what you like and dislike." },
-            { type: "input_image", image_base64: imageBase64 },
-          ],
-        },
-      ],
+    const { imageBase64, mimeType, previousImageBase64, previousMimeType } = req.body;
+
+    if (!imageBase64) {
+      return res.status(400).json({ error: 'Image data is required' });
+    }
+
+    const dataUrl = `data:${mimeType || 'image/jpeg'};base64,${imageBase64}`;
+
+    const content = [];
+
+    if (previousImageBase64) {
+      const prevDataUrl = `data:${previousMimeType || 'image/jpeg'};base64,${previousImageBase64}`;
+      content.push({
+        type: 'text',
+        text: `
+You are a fitness progress analyzer. Compare these two progress photos (first is BEFORE, second is AFTER/current). 
+For each body part (shoulders, arms, chest, back, core, legs), provide a brief observation.
+Respond ONLY with JSON, e.g.:
+
+{
+  "shoulders": "...",
+  "arms": "...",
+  "chest": "...",
+  "back": "...",
+  "core": "...",
+  "legs": "...",
+  "overall": "..."
+}`
+      });
+      content.push({ type: 'image_url', image_url: { url: prevDataUrl } });
+      content.push({ type: 'image_url', image_url: { url: dataUrl } });
+    } else {
+      content.push({
+        type: 'text',
+        text: `
+You are a fitness progress analyzer. Analyze this baseline progress photo.
+For each body part (shoulders, arms, chest, back, core, legs), provide a brief observation.
+Respond ONLY with JSON, e.g.:
+
+{
+  "shoulders": "...",
+  "arms": "...",
+  "chest": "...",
+  "back": "...",
+  "core": "...",
+  "legs": "...",
+  "overall": "..."
+}`
+      });
+      content.push({ type: 'image_url', image_url: { url: dataUrl } });
+    }
+
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model: 'gpt-4.0',
+        messages: [{ role: 'user', content }],
+        max_tokens: 1000
+      })
     });
 
-    res.json({ result: response.output_text });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "AI request failed" });
+    if (!response.ok) {
+      console.error('OpenAI error:', await response.text());
+      return res.status(500).json({ error: 'Failed to analyze photo' });
+    }
+
+    const data = await response.json();
+    const text = data.choices?.[0]?.message?.content || '';
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+
+    if (!jsonMatch) {
+      return res.status(500).json({ error: 'Invalid AI response' });
+    }
+
+    res.json(JSON.parse(jsonMatch[0]));
+  } catch (error) {
+    console.error('Error:', error);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-app.listen(port, () => console.log(`Server running on port ${port}`));
+/* -----------------------------
+   Compare two photos
+-------------------------------- */
+app.post('/api/compare-photos', async (req, res) => {
+  try {
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+      return res.status(500).json({ error: 'OpenAI API key not configured' });
+    }
+
+    const { beforeBase64, beforeMime, afterBase64, afterMime, beforePose, afterPose } = req.body;
+
+    if (!beforeBase64 || !afterBase64) {
+      return res.status(400).json({ error: 'Both images required' });
+    }
+
+    const beforeDataUrl = `data:${beforeMime || 'image/jpeg'};base64,${beforeBase64}`;
+    const afterDataUrl = `data:${afterMime || 'image/jpeg'};base64,${afterBase64}`;
+
+    const hasFrontShot = beforePose === 'front' || afterPose === 'front';
+
+    const prompt = `
+Compare these fitness progress photos. First is BEFORE, second is AFTER.
+For each muscle group (Shoulders, Arms, Chest, Core, Back, Legs), provide:
+- winner: "before"/"after"/"same"
+- observation: "..."
+Also provide:
+- overallSummary
+- recommendations (priority: high/medium/low)
+${hasFrontShot ? 'If possible, provide a bodyFat estimate range.' : ''}
+Respond ONLY in JSON.
+`;
+
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model: 'gpt-4.0',
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: prompt },
+              { type: 'image_url', image_url: { url: beforeDataUrl } },
+              { type: 'image_url', image_url: { url: afterDataUrl } }
+            ]
+          }
+        ],
+        max_tokens: 1500
+      })
+    });
+
+    if (!response.ok) {
+      console.error('OpenAI error:', await response.text());
+      return res.status(500).json({ error: 'Failed to compare photos' });
+    }
+
+    const data = await response.json();
+    const text = data.choices?.[0]?.message?.content || '';
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+
+    if (!jsonMatch) {
+      return res.status(500).json({ error: 'Invalid AI response' });
+    }
+
+    const parsed = JSON.parse(jsonMatch[0]);
+    res.json({ ...parsed, daysApart: 0 });
+  } catch (error) {
+    console.error('Error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
