@@ -140,14 +140,31 @@ app.post('/api/compare-photos', async (req, res) => {
 
     const prompt = `
 Compare these fitness progress photos. First is BEFORE, second is AFTER.
-For each muscle group (Shoulders, Arms, Chest, Core, Back, Legs), provide:
-- winner: "before"/"after"/"same"
-- observation: "..."
+For each muscle group (Shoulders, Arms, Chest, Core, Back, Legs):
+- Provide "winner": "before", "after", or "same"
+- Provide "observation": a short note about progress
+
 Also provide:
-- overallSummary
-- recommendations (priority: high/medium/low)
-${hasFrontShot ? 'If possible, provide a bodyFat estimate range.' : ''}
-Respond ONLY in JSON.
+- overallSummary: short summary of overall progress
+- recommendations: an array of objects with "text" and "priority" ("high", "medium", "low")
+
+Return ONLY JSON with the following exact structure:
+{
+  "muscles": [
+    { "name": "Shoulders", "winner": "...", "observation": "..." },
+    { "name": "Arms", "winner": "...", "observation": "..." },
+    { "name": "Chest", "winner": "...", "observation": "..." },
+    { "name": "Core", "winner": "...", "observation": "..." },
+    { "name": "Back", "winner": "...", "observation": "..." },
+    { "name": "Legs", "winner": "...", "observation": "..." }
+  ],
+  "overallSummary": "...",
+  "recommendations": [
+    { "text": "...", "priority": "high/medium/low" }
+  ],
+  "daysApart": 0
+}
+${hasFrontShot ? 'If possible, provide a bodyFat estimate range in overallSummary.' : ''}
 `;
 
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -186,7 +203,11 @@ Respond ONLY in JSON.
     }
 
     const parsed = JSON.parse(jsonMatch[0]);
-    res.json({ ...parsed, daysApart: 0 });
+
+    // Ensure daysApart is always included
+    parsed.daysApart = 0;
+
+    res.json(parsed);
   } catch (error) {
     console.error('Error:', error);
     res.status(500).json({ error: 'Internal server error' });
