@@ -1,9 +1,10 @@
-javascript const fetch =
-  require('node-fetch');
+// -----------------------------
+// Progress Photo Analyzer API
+// -----------------------------
 
 const express = require('express');
 const cors = require('cors');
-const fetch = require('node-fetch'); // if using Node <18
+const fetch = require('node-fetch'); // Remove this line if using Node 18+ (fetch is built-in)
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -11,7 +12,9 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 
+// -----------------------------
 // Health check
+// -----------------------------
 app.get('/', (req, res) => {
   res.json({ status: 'ok', message: 'Progress Photo Analyzer API' });
 });
@@ -20,12 +23,12 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok' });
 });
 
-/* -----------------------------
-   Analyze single photo
--------------------------------- */
+// -----------------------------
+// Analyze single photo
+// -----------------------------
 app.post('/api/analyze-photo', async (req, res) => {
   try {
-    const apiKey = process.env.OPENAI_API_KEY;
+    const apiKey = process.env.openai_api_key || process.env.OPENAI_API_KEY;
     if (!apiKey) {
       return res.status(500).json({ error: 'OpenAI API key not configured' });
     }
@@ -37,7 +40,6 @@ app.post('/api/analyze-photo', async (req, res) => {
     }
 
     const dataUrl = `data:${mimeType || 'image/jpeg'};base64,${imageBase64}`;
-
     const content = [];
 
     if (previousImageBase64) {
@@ -115,12 +117,12 @@ Respond ONLY with JSON, e.g.:
   }
 });
 
-/* -----------------------------
-   Compare two photos
--------------------------------- */
+// -----------------------------
+// Compare two photos
+// -----------------------------
 app.post('/api/compare-photos', async (req, res) => {
   try {
-    const apiKey = process.env.OPENAI_API_KEY;
+    const apiKey = process.env.openai_api_key || process.env.OPENAI_API_KEY;
     if (!apiKey) {
       return res.status(500).json({ error: 'OpenAI API key not configured' });
     }
@@ -191,4 +193,7 @@ Respond ONLY in JSON.
   }
 });
 
+// -----------------------------
+// Start server
+// -----------------------------
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
