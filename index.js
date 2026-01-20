@@ -86,7 +86,7 @@ Respond ONLY with JSON, e.g.:
         Authorization: `Bearer ${apiKey}`
       },
       body: JSON.stringify({
-        model: 'gpt-4.0',
+        model: 'gpt-4.1-mini',
         messages: [{ role: 'user', content }],
         max_tokens: 1000
       })
@@ -152,7 +152,7 @@ Respond ONLY in JSON.
         Authorization: `Bearer ${apiKey}`
       },
       body: JSON.stringify({
-        model: 'gpt-4.0',
+        model: 'gpt-4.1-mini',
         messages: [
           {
             role: 'user',
